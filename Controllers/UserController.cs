@@ -1,5 +1,6 @@
 using BlogApp.Models;
 using BlogApp.Models.ViewModels;
+using BlogApp.Services;
 using BlogApp.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -12,11 +13,19 @@ namespace BlogApp.Controllers
     {
         private readonly IUserService _userService;
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly UserActionLogger _userActionLogger;
+        private readonly ILogger<UserController> _logger;
 
-        public UserController(IUserService userService, UserManager<ApplicationUser> userManager)
+        public UserController(
+            IUserService userService,
+            UserManager<ApplicationUser> userManager,
+            UserActionLogger userActionLogger,
+            ILogger<UserController> logger)
         {
             _userService = userService;
             _userManager = userManager;
+            _userActionLogger = userActionLogger;
+            _logger = logger;
         }
 
         // GET: /User  -- список всех пользователей (администратор или модератор)
@@ -34,6 +43,7 @@ namespace BlogApp.Controllers
             var user = await _userService.GetUserByIdAsync(id);
             if (user == null)
             {
+                _logger.LogWarning("Пользователь с Id={Id} не найден", id);
                 return NotFound();
             }
 
@@ -52,29 +62,18 @@ namespace BlogApp.Controllers
             var user = await _userService.GetUserByIdAsync(id);
             if (user == null)
             {
+                _logger.LogWarning("Пользователь с Id={Id} не найден при открытии формы редактирования", id);
                 return NotFound();
             }
 
-            var model = new UserEditViewModel
-            {
-                Id = user.Id,
-                UserName = user.UserName ?? string.Empty,
-                Email = user.Email ?? string.Empty,
-                AvatarUrl = user.AvatarUrl,
-                RegisteredAt = user.RegisteredAt
-            };
-
-            return View(model);
+            return View(user);
         }
 
         // POST: /User/Edit/5
-        // Принимает только UserEditViewModel (белый список полей), а не всю
-        // сущность ApplicationUser - иначе через сырой HTTP-запрос можно было бы
-        // переписать PasswordHash, роли и другие служебные поля (overposting).
         [HttpPost]
         [Authorize]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(string id, UserEditViewModel model)
+        public async Task<IActionResult> Edit(string id, ApplicationUser model)
         {
             if (!IsSelfOrAdmin(id))
             {
@@ -91,7 +90,13 @@ namespace BlogApp.Controllers
                 return View(model);
             }
 
-            var result = await _userService.UpdateUserAsync(id, model.UserName, model.Email, model.AvatarUrl);
+            // Новая сигнатура: UpdateUserAsync(id, userName, email, avatarUrl)
+            var result = await _userService.UpdateUserAsync(
+                model.Id,
+                model.UserName ?? string.Empty,
+                model.Email ?? string.Empty,
+                model.AvatarUrl);
+
             if (!result.Succeeded)
             {
                 foreach (var error in result.Errors)
@@ -100,6 +105,10 @@ namespace BlogApp.Controllers
                 }
                 return View(model);
             }
+
+            var currentUserName = User.Identity?.Name ?? "unknown";
+            _userActionLogger.LogAction(currentUserName, "Отредактировал профиль пользователя",
+                $"TargetUserId={id}, UserName={model.UserName}, Email={model.Email}");
 
             return RedirectToAction(nameof(Details), new { id });
         }
@@ -110,7 +119,28 @@ namespace BlogApp.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(string id)
         {
-            await _userService.DeleteUserAsync(id);
+            var user = await _userService.GetUserByIdAsync(id);
+            if (user == null)
+            {
+                _logger.LogWarning("Пользователь с Id={Id} не найден при попытке удаления", id);
+                return NotFound();
+            }
+
+            var deletedUserName = user.UserName;
+            var deletedEmail = user.Email;
+
+            var result = await _userService.DeleteUserAsync(id);
+            if (!result.Succeeded)
+            {
+                _logger.LogError("Не удалось удалить пользователя {Id}: {Errors}",
+                    id, string.Join("; ", result.Errors));
+                return BadRequest(result.Errors);
+            }
+
+            var currentUserName = User.Identity?.Name ?? "unknown";
+            _userActionLogger.LogAction(currentUserName, "Удалил пользователя",
+                $"TargetUserId={id}, UserName={deletedUserName}, Email={deletedEmail}");
+
             return RedirectToAction(nameof(Index));
         }
 

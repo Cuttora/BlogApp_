@@ -1,5 +1,5 @@
 using BlogApp.Models;
-using BlogApp.Models.ViewModels;
+using BlogApp.Services;
 using BlogApp.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -11,11 +11,19 @@ namespace BlogApp.Controllers
     {
         private readonly ITagService _tagService;
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly UserActionLogger _userActionLogger;
+        private readonly ILogger<TagController> _logger;
 
-        public TagController(ITagService tagService, UserManager<ApplicationUser> userManager)
+        public TagController(
+            ITagService tagService,
+            UserManager<ApplicationUser> userManager,
+            UserActionLogger userActionLogger,
+            ILogger<TagController> logger)
         {
             _tagService = tagService;
             _userManager = userManager;
+            _userActionLogger = userActionLogger;
+            _logger = logger;
         }
 
         // GET: /Tag  -- публичная страница
@@ -33,6 +41,7 @@ namespace BlogApp.Controllers
             var tag = await _tagService.GetTagByIdAsync(id);
             if (tag == null)
             {
+                _logger.LogWarning("Тег с Id={Id} не найден", id);
                 return NotFound();
             }
 
@@ -41,21 +50,27 @@ namespace BlogApp.Controllers
 
         // GET: /Tag/Create -- любой авторизованный пользователь
         [Authorize]
-        public IActionResult Create() => View(new TagFormViewModel());
+        public IActionResult Create() => View();
 
         // POST: /Tag/Create
         [HttpPost]
         [Authorize]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(TagFormViewModel model)
+        public async Task<IActionResult> Create(string name)
         {
-            if (!ModelState.IsValid)
+            if (string.IsNullOrWhiteSpace(name))
             {
-                return View(model);
+                ModelState.AddModelError(nameof(name), "Введите название тега");
+                return View();
             }
 
             var userId = _userManager.GetUserId(User)!;
-            var tag = await _tagService.CreateTagAsync(model.Name, userId);
+            var userName = User.Identity?.Name ?? userId;
+            var tag = await _tagService.CreateTagAsync(name, userId);
+
+            _userActionLogger.LogAction(userName, "Создал тег",
+                $"Id={tag.Id}, Name={tag.Name}");
+
             return RedirectToAction(nameof(Details), new { id = tag.Id });
         }
 
@@ -66,6 +81,7 @@ namespace BlogApp.Controllers
             var tag = await _tagService.GetTagByIdAsync(id);
             if (tag == null)
             {
+                _logger.LogWarning("Тег с Id={Id} не найден при открытии формы редактирования", id);
                 return NotFound();
             }
 
@@ -74,23 +90,19 @@ namespace BlogApp.Controllers
                 return Forbid();
             }
 
-            return View(new TagFormViewModel { Id = tag.Id, Name = tag.Name });
+            return View(tag);
         }
 
         // POST: /Tag/Edit/5
         [HttpPost]
         [Authorize]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, TagFormViewModel model)
+        public async Task<IActionResult> Edit(int id, string name)
         {
-            if (id != model.Id)
-            {
-                return BadRequest();
-            }
-
             var tag = await _tagService.GetTagByIdAsync(id);
             if (tag == null)
             {
+                _logger.LogWarning("Тег с Id={Id} не найден при попытке редактирования", id);
                 return NotFound();
             }
 
@@ -99,17 +111,17 @@ namespace BlogApp.Controllers
                 return Forbid();
             }
 
-            if (!ModelState.IsValid)
+            if (string.IsNullOrWhiteSpace(name))
             {
-                return View(model);
+                ModelState.AddModelError(nameof(name), "Введите название тега");
+                return View(tag);
             }
 
-            var updated = await _tagService.UpdateTagAsync(id, model.Name);
-            if (!updated)
-            {
-                ModelState.AddModelError(nameof(model.Name), "Тег с таким названием уже существует");
-                return View(model);
-            }
+            await _tagService.UpdateTagAsync(id, name);
+
+            var userName = User.Identity?.Name ?? "unknown";
+            _userActionLogger.LogAction(userName, "Отредактировал тег",
+                $"Id={id}, NewName={name}");
 
             return RedirectToAction(nameof(Details), new { id });
         }
@@ -121,6 +133,7 @@ namespace BlogApp.Controllers
             var tag = await _tagService.GetTagByIdAsync(id);
             if (tag == null)
             {
+                _logger.LogWarning("Тег с Id={Id} не найден при открытии формы удаления", id);
                 return NotFound();
             }
 
@@ -141,6 +154,7 @@ namespace BlogApp.Controllers
             var tag = await _tagService.GetTagByIdAsync(id);
             if (tag == null)
             {
+                _logger.LogWarning("Тег с Id={Id} не найден при попытке удаления", id);
                 return NotFound();
             }
 
@@ -149,7 +163,13 @@ namespace BlogApp.Controllers
                 return Forbid();
             }
 
+            var tagName = tag.Name;
             await _tagService.DeleteTagAsync(id);
+
+            var userName = User.Identity?.Name ?? "unknown";
+            _userActionLogger.LogAction(userName, "Удалил тег",
+                $"Id={id}, Name={tagName}");
+
             return RedirectToAction(nameof(Index));
         }
 

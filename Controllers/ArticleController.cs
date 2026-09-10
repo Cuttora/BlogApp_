@@ -1,4 +1,5 @@
 using BlogApp.Models.ViewModels;
+using BlogApp.Services;
 using BlogApp.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -11,14 +12,21 @@ namespace BlogApp.Controllers
     {
         private readonly IArticleService _articleService;
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly UserActionLogger _userActionLogger;
+        private readonly ILogger<ArticleController> _logger;
 
-        public ArticleController(IArticleService articleService, UserManager<ApplicationUser> userManager)
+        public ArticleController(
+            IArticleService articleService,
+            UserManager<ApplicationUser> userManager,
+            UserActionLogger userActionLogger,
+            ILogger<ArticleController> logger)
         {
             _articleService = articleService;
             _userManager = userManager;
+            _userActionLogger = userActionLogger;
+            _logger = logger;
         }
 
-        // GET: /Article  -- список всех статей, публичная страница
         [AllowAnonymous]
         public async Task<IActionResult> Index()
         {
@@ -26,24 +34,22 @@ namespace BlogApp.Controllers
             return View(articles);
         }
 
-        // GET: /Article/Details/5  -- публичная страница
         [AllowAnonymous]
         public async Task<IActionResult> Details(int id)
         {
             var article = await _articleService.GetArticleByIdAsync(id);
             if (article == null)
             {
+                _logger.LogWarning("Статья с Id={Id} не найдена", id);
                 return NotFound();
             }
 
             return View(article);
         }
 
-        // GET: /Article/Create  -- только авторизованный пользователь
         [Authorize]
         public IActionResult Create() => View(new ArticleFormViewModel());
 
-        // POST: /Article/Create
         [HttpPost]
         [Authorize]
         [ValidateAntiForgeryToken]
@@ -55,18 +61,21 @@ namespace BlogApp.Controllers
             }
 
             var userId = _userManager.GetUserId(User)!;
+            var userName = User.Identity?.Name ?? userId;
             var article = await _articleService.CreateArticleAsync(model.Title, model.Content, userId, model.TagsInput);
+
+            _userActionLogger.LogAction(userName, "Создал статью", $"Id={article.Id}, Title={article.Title}");
 
             return RedirectToAction(nameof(Details), new { id = article.Id });
         }
 
-        // GET: /Article/Edit/5  -- автор или модератор/администратор
         [Authorize]
         public async Task<IActionResult> Edit(int id)
         {
             var article = await _articleService.GetArticleByIdAsync(id);
             if (article == null)
             {
+                _logger.LogWarning("Статья с Id={Id} не найдена при открытии формы редактирования", id);
                 return NotFound();
             }
 
@@ -86,7 +95,6 @@ namespace BlogApp.Controllers
             return View(model);
         }
 
-        // POST: /Article/Edit/5
         [HttpPost]
         [Authorize]
         [ValidateAntiForgeryToken]
@@ -100,6 +108,7 @@ namespace BlogApp.Controllers
             var article = await _articleService.GetArticleByIdAsync(id);
             if (article == null)
             {
+                _logger.LogWarning("Статья с Id={Id} не найдена при попытке редактирования", id);
                 return NotFound();
             }
 
@@ -114,16 +123,20 @@ namespace BlogApp.Controllers
             }
 
             await _articleService.UpdateArticleAsync(id, model.Title, model.Content, model.TagsInput);
+
+            var userName = User.Identity?.Name ?? "unknown";
+            _userActionLogger.LogAction(userName, "Отредактировал статью", $"Id={id}, Title={model.Title}");
+
             return RedirectToAction(nameof(Details), new { id });
         }
 
-        // GET: /Article/Delete/5 -- подтверждение удаления
         [Authorize]
         public async Task<IActionResult> Delete(int id)
         {
             var article = await _articleService.GetArticleByIdAsync(id);
             if (article == null)
             {
+                _logger.LogWarning("Статья с Id={Id} не найдена при открытии формы удаления", id);
                 return NotFound();
             }
 
@@ -135,7 +148,6 @@ namespace BlogApp.Controllers
             return View(article);
         }
 
-        // POST: /Article/Delete/5  -- автор или модератор/администратор
         [HttpPost, ActionName("Delete")]
         [Authorize]
         [ValidateAntiForgeryToken]
@@ -144,6 +156,7 @@ namespace BlogApp.Controllers
             var article = await _articleService.GetArticleByIdAsync(id);
             if (article == null)
             {
+                _logger.LogWarning("Статья с Id={Id} не найдена при попытке удаления", id);
                 return NotFound();
             }
 
@@ -152,11 +165,15 @@ namespace BlogApp.Controllers
                 return Forbid();
             }
 
+            var title = article.Title;
             await _articleService.DeleteArticleAsync(id);
+
+            var userName = User.Identity?.Name ?? "unknown";
+            _userActionLogger.LogAction(userName, "Удалил статью", $"Id={id}, Title={title}");
+
             return RedirectToAction(nameof(Index));
         }
 
-        // GET: /Article/GetByAuthor/{authorId}  -- все статьи заданного автора
         [AllowAnonymous]
         public async Task<IActionResult> GetByAuthor(string authorId)
         {
@@ -165,7 +182,6 @@ namespace BlogApp.Controllers
             return View("Index", articles);
         }
 
-        // GET/POST: /Article/Search  -- поиск по тексту и/или тегам
         [AllowAnonymous]
         public async Task<IActionResult> Search(string? query, string? tagsInput)
         {
@@ -183,7 +199,6 @@ namespace BlogApp.Controllers
             return View(model);
         }
 
-        // Автор статьи либо модератор/администратор может её редактировать/удалять
         private bool CanModify(string authorId)
         {
             var currentId = _userManager.GetUserId(User);

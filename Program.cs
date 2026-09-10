@@ -2,20 +2,36 @@ using BlogApp.Data;
 using BlogApp.Models;
 using BlogApp.Services;
 using BlogApp.Services.Interfaces;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using NLog;
+using NLog.Web;
 
-var builder = WebApplication.CreateBuilder(args);
+// ---- Инициализация NLog ДО создания builder ----
+var logger = LogManager.Setup()
+    .LoadConfigurationFromAppSettings()
+    .GetCurrentClassLogger();
 
-// ---- Data Access layer: EF Core + SQLite ----
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Data Source=app.db";
+try
+{
+    logger.Info("Приложение запускается");
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlite(connectionString));
+    var builder = WebApplication.CreateBuilder(args);
 
-// ---- Authentication / Authorization: ASP.NET Core Identity ----
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+    // Подключаем NLog как провайдер логирования
+    builder.Logging.ClearProviders();
+    builder.Host.UseNLog();
+
+    // ---- Data Access layer: EF Core + SQLite ----
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? "Data Source=app.db";
+
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+        options.UseSqlite(connectionString));
+
+    // ---- Authentication / Authorization: ASP.NET Core Identity ----
+    builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
     {
         options.Password.RequireDigit = true;
         options.Password.RequireLowercase = true;
@@ -28,56 +44,103 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
         options.Lockout.MaxFailedAccessAttempts = 5;
         options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
     })
-    .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddDefaultTokenProviders();
+        .AddEntityFrameworkStores<ApplicationDbContext>()
+        .AddDefaultTokenProviders();
 
-builder.Services.ConfigureApplicationCookie(options =>
-{
-    options.LoginPath = "/Account/Login";
-    options.LogoutPath = "/Account/Logout";
-    options.AccessDeniedPath = "/Account/AccessDenied";
-    options.ExpireTimeSpan = TimeSpan.FromDays(14);
-    options.SlidingExpiration = true;
-});
+    builder.Services.ConfigureApplicationCookie(options =>
+    {
+        options.LoginPath = "/Account/Login";
+        options.LogoutPath = "/Account/Logout";
+        options.AccessDeniedPath = "/Account/AccessDenied";
+        options.ExpireTimeSpan = TimeSpan.FromDays(14);
+        options.SlidingExpiration = true;
+    });
 
-// ---- Business Logic layer: application services ----
-builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IArticleService, ArticleService>();
-builder.Services.AddScoped<ITagService, TagService>();
-builder.Services.AddScoped<ICommentService, CommentService>();
+    // ---- Business Logic layer: application services ----
+    builder.Services.AddScoped<IUserService, UserService>();
+    builder.Services.AddScoped<IArticleService, ArticleService>();
+    builder.Services.AddScoped<ITagService, TagService>();
+    builder.Services.AddScoped<ICommentService, CommentService>();
 
-// ---- Presentation layer: MVC ----
-builder.Services.AddControllersWithViews();
+    // ---- Логгер действий пользователя ----
+    builder.Services.AddScoped<UserActionLogger>();
 
-var app = builder.Build();
+    // ---- Presentation layer: MVC ----
+    builder.Services.AddControllersWithViews();
 
-// ---- Apply migrations and seed initial data (roles + demo users) ----
-using (var scope = app.Services.CreateScope())
-{
-    var services = scope.ServiceProvider;
-    var db = services.GetRequiredService<ApplicationDbContext>();
-    db.Database.Migrate();
+    var app = builder.Build();
 
-    await SeedData.InitializeAsync(services);
+    // ---- Apply migrations and seed initial data (roles + demo users) ----
+    using (var scope = app.Services.CreateScope())
+    {
+        var services = scope.ServiceProvider;
+        try
+        {
+            var db = services.GetRequiredService<ApplicationDbContext>();
+            db.Database.Migrate();
+
+            await SeedData.InitializeAsync(services);
+            logger.Info("База данных успешно инициализирована");
+        }
+        catch (Exception ex)
+        {
+            logger.Error(ex, "Ошибка при инициализации базы данных");
+            throw;
+        }
+    }
+
+    // ---- HTTP request pipeline ----
+
+    // Глобальный обработчик исключений — включаем во всех окружениях,
+    // чтобы пользователь всегда попадал на страницу «Что-то пошло не так».
+    app.UseExceptionHandler(errorApp =>
+    {
+        errorApp.Run(async context =>
+        {
+            var exceptionFeature = context.Features.Get<IExceptionHandlerPathFeature>();
+            var exception = exceptionFeature?.Error;
+
+            // Логируем необработанное исключение (ILogger уже пишет в NLog)
+            var loggerFactory = context.RequestServices.GetRequiredService<ILoggerFactory>();
+            var errorLogger = loggerFactory.CreateLogger("GlobalExceptionHandler");
+            errorLogger.LogError(exception,
+                "Необработанное исключение на {Path}",
+                context.Request.Path);
+
+            // Перенаправляем пользователя на страницу «Что-то пошло не так»
+            context.Response.Redirect("/Home/Error");
+            await Task.CompletedTask;
+        });
+    });
+
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseHsts();
+    }
+
+    app.UseHttpsRedirection();
+    app.UseStaticFiles();
+
+    app.UseRouting();
+
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    app.MapControllerRoute(
+        name: "default",
+        pattern: "{controller=Article}/{action=Index}/{id?}");
+
+    logger.Info("Приложение готово к приёму запросов");
+    app.Run();
 }
-
-// ---- HTTP request pipeline ----
-if (!app.Environment.IsDevelopment())
+catch (Exception ex)
 {
-    app.UseExceptionHandler("/Home/Error");
-    app.UseHsts();
+    // Логируем фатальную ошибку при запуске приложения
+    logger.Error(ex, "Приложение упало при запуске");
+    throw;
 }
-
-app.UseHttpsRedirection();
-app.UseStaticFiles();
-
-app.UseRouting();
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapControllerRoute(
-    name: "default",
-    pattern: "{controller=Article}/{action=Index}/{id?}");
-
-app.Run();
+finally
+{
+    // Корректно завершаем NLog, чтобы все логи были записаны на диск
+    LogManager.Shutdown();
+}

@@ -1,6 +1,6 @@
 using BlogApp.Models;
 using BlogApp.Models.ViewModels;
-using BlogApp.Services.Interfaces;
+using BlogApp.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -9,18 +9,24 @@ namespace BlogApp.Controllers
 {
     public class AccountController : Controller
     {
-        private readonly IUserService _userService;
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
+        private readonly RoleManager<IdentityRole> _roleManager;
+        private readonly UserActionLogger _userActionLogger;
+        private readonly ILogger<AccountController> _logger;
 
         public AccountController(
-            IUserService userService,
             UserManager<ApplicationUser> userManager,
-            SignInManager<ApplicationUser> signInManager)
+            SignInManager<ApplicationUser> signInManager,
+            RoleManager<IdentityRole> roleManager,
+            UserActionLogger userActionLogger,
+            ILogger<AccountController> logger)
         {
-            _userService = userService;
             _userManager = userManager;
             _signInManager = signInManager;
+            _roleManager = roleManager;
+            _userActionLogger = userActionLogger;
+            _logger = logger;
         }
 
         // GET: /Account/Register
@@ -39,20 +45,39 @@ namespace BlogApp.Controllers
                 return View(model);
             }
 
-            // Создание пользователя и назначение роли "User" - в UserService
-            // (бизнес-логика), контроллер только передаёт введённые данные.
-            var result = await _userService.CreateUserAsync(model.UserName, model.Email, model.Password);
+            var user = new ApplicationUser
+            {
+                UserName = model.UserName,
+                Email = model.Email,
+                RegisteredAt = DateTime.UtcNow
+            };
+
+            var result = await _userManager.CreateAsync(user, model.Password);
 
             if (result.Succeeded)
             {
-                var user = await _userManager.FindByIdAsync(result.UserId!);
-                await _signInManager.SignInAsync(user!, isPersistent: false);
+                // Каждому новому пользователю автоматически присваивается роль "User"
+                if (!await _roleManager.RoleExistsAsync("User"))
+                {
+                    await _roleManager.CreateAsync(new IdentityRole("User"));
+                }
+
+                await _userManager.AddToRoleAsync(user, "User");
+                await _signInManager.SignInAsync(user, isPersistent: false);
+
+                _userActionLogger.LogAction(user.UserName!, "Зарегистрировался",
+                    $"Email={user.Email}");
+
                 return RedirectToAction("Index", "Article");
             }
 
+            // Логируем неудачную попытку регистрации
+            _logger.LogWarning("Неудачная попытка регистрации: {Errors}",
+                string.Join("; ", result.Errors.Select(e => e.Description)));
+
             foreach (var error in result.Errors)
             {
-                ModelState.AddModelError(string.Empty, error);
+                ModelState.AddModelError(string.Empty, error.Description);
             }
 
             return View(model);
@@ -78,6 +103,7 @@ namespace BlogApp.Controllers
             var user = await _userManager.FindByEmailAsync(model.Email);
             if (user == null)
             {
+                _logger.LogWarning("Попытка входа с несуществующим email: {Email}", model.Email);
                 ModelState.AddModelError(string.Empty, "Неверный e-mail или пароль");
                 return View(model);
             }
@@ -88,6 +114,8 @@ namespace BlogApp.Controllers
 
             if (result.Succeeded)
             {
+                _userActionLogger.LogAction(user.UserName!, "Успешный вход в систему");
+
                 if (!string.IsNullOrEmpty(model.ReturnUrl) && Url.IsLocalUrl(model.ReturnUrl))
                 {
                     return Redirect(model.ReturnUrl);
@@ -98,8 +126,12 @@ namespace BlogApp.Controllers
 
             if (result.IsLockedOut)
             {
-                ModelState.AddModelError(string.Empty, "Учётная запись временно заблокирована из-за неудачных попыток входа");
-                return View(model);
+                _logger.LogWarning("Аккаунт {Email} заблокирован", model.Email);
+                _userActionLogger.LogAction(user.UserName!, "Попытка входа в заблокированный аккаунт");
+            }
+            else
+            {
+                _logger.LogWarning("Неудачная попытка входа для {Email}", model.Email);
             }
 
             ModelState.AddModelError(string.Empty, "Неверный e-mail или пароль");
@@ -111,7 +143,11 @@ namespace BlogApp.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Logout()
         {
+            var userName = User.Identity?.Name ?? "unknown";
             await _signInManager.SignOutAsync();
+
+            _userActionLogger.LogAction(userName, "Вышел из системы");
+
             return RedirectToAction("Index", "Article");
         }
 

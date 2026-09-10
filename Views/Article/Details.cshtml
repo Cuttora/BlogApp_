@@ -1,4 +1,6 @@
 @model Article
+@using BlogApp.Models.ViewModels
+
 @{
     ViewData["Title"] = Model.Title;
     var currentUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -36,10 +38,13 @@
 
 @if (User.Identity != null && User.Identity.IsAuthenticated)
 {
+    var commentModel = new CommentCreateViewModel { ArticleId = Model.Id };
     <form asp-controller="Comment" asp-action="Create" method="post" class="mb-3">
-        <input type="hidden" name="articleId" value="@Model.Id" />
+        <input type="hidden" asp-for="@commentModel.ArticleId" />
+        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
         <div class="form-group mb-2">
-            <textarea name="content" class="form-control" rows="2" placeholder="Ваш комментарий..." required></textarea>
+            <textarea asp-for="@commentModel.Content" class="form-control" rows="2" placeholder="Ваш комментарий..."></textarea>
+            <span asp-validation-for="@commentModel.Content" class="text-danger"></span>
         </div>
         <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
     </form>
@@ -65,4 +70,8 @@ else
             </form>
         }
     </div>
+}
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
 }
