@@ -1,0 +1,16 @@
+@model ApplicationUser
+@{
+    ViewData["Title"] = Model.UserName;
+    var currentUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+}
+<h1>@Model.UserName</h1>
+<p>Email: @Model.Email</p>
+<p>Дата регистрации: @Model.RegisteredAt.ToLocalTime().ToString("dd.MM.yyyy")</p>
+
+@if (currentUserId == Model.Id || User.IsInRole("Admin"))
+{
+    <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-outline-primary btn-sm">Редактировать</a>
+}
+
+<h4 class="mt-4">Статьи автора</h4>
+<a asp-controller="Article" asp-action="GetByAuthor" asp-route-authorId="@Model.Id">Показать все статьи этого пользователя</a>

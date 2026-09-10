@@ -1,0 +1,10 @@
+@model Tag
+@{
+    ViewData["Title"] = "Удаление тега";
+}
+<h1>Удаление тега</h1>
+<p>Вы уверены, что хотите удалить тег <strong>@Model.Name</strong>?</p>
+<form asp-action="Delete" asp-route-id="@Model.Id" method="post">
+    <button type="submit" class="btn btn-danger">Удалить</button>
+    <a asp-action="Details" asp-route-id="@Model.Id" class="btn btn-secondary">Отмена</a>
+</form>

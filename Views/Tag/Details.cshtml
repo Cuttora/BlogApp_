@@ -1,0 +1,25 @@
+@model Tag
+@{
+    ViewData["Title"] = Model.Name;
+    var currentUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    var canModify = User.Identity != null && User.Identity.IsAuthenticated &&
+        (currentUserId == Model.CreatedByUserId || User.IsInRole("Admin"));
+}
+<h1>Тег: @Model.Name</h1>
+<p class="text-muted">Создал: @Model.CreatedByUser?.UserName</p>
+
+@if (canModify)
+{
+    <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-outline-primary btn-sm">Редактировать</a>
+    <a asp-action="Delete" asp-route-id="@Model.Id" class="btn btn-outline-danger btn-sm">Удалить</a>
+}
+
+<h4 class="mt-4">Статьи с этим тегом</h4>
+@foreach (var at in Model.ArticleTags)
+{
+    <div class="card mb-2">
+        <div class="card-body">
+            <a asp-controller="Article" asp-action="Details" asp-route-id="@at.Article!.Id">@at.Article!.Title</a>
+        </div>
+    </div>
+}

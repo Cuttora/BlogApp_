@@ -1,0 +1,26 @@
+@model List<ApplicationUser>
+@{
+    ViewData["Title"] = "Пользователи";
+}
+<h1>Пользователи</h1>
+<table class="table">
+    <thead><tr><th>Имя</th><th>Email</th><th>Дата регистрации</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var user in Model)
+    {
+        <tr>
+            <td><a asp-action="Details" asp-route-id="@user.Id">@user.UserName</a></td>
+            <td>@user.Email</td>
+            <td>@user.RegisteredAt.ToLocalTime().ToString("dd.MM.yyyy")</td>
+            <td>
+                @if (User.IsInRole("Admin"))
+                {
+                    <form asp-action="Delete" asp-route-id="@user.Id" method="post" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
+                    </form>
+                }
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>

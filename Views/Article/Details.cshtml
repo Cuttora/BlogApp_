@@ -1,0 +1,68 @@
+@model Article
+@{
+    ViewData["Title"] = Model.Title;
+    var currentUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    var canModify = User.Identity != null && User.Identity.IsAuthenticated &&
+        (currentUserId == Model.AuthorId || User.IsInRole("Admin") || User.IsInRole("Moderator"));
+}
+
+<h1>@Model.Title</h1>
+<h6 class="text-muted">
+    Автор: <a asp-action="GetByAuthor" asp-route-authorId="@Model.AuthorId">@Model.Author?.UserName</a>
+    &middot; @Model.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm")
+    @if (Model.UpdatedAt != null)
+    {
+        <span>(обновлено @Model.UpdatedAt.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm"))</span>
+    }
+</h6>
+
+<div class="mb-3">
+    @foreach (var at in Model.ArticleTags)
+    {
+        <span class="badge bg-secondary tag-badge">@at.Tag?.Name</span>
+    }
+</div>
+
+<p style="white-space: pre-wrap;">@Model.Content</p>
+
+@if (canModify)
+{
+    <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-outline-primary btn-sm">Редактировать</a>
+    <a asp-action="Delete" asp-route-id="@Model.Id" class="btn btn-outline-danger btn-sm">Удалить</a>
+}
+
+<hr />
+<h4>Комментарии (@Model.Comments.Count)</h4>
+
+@if (User.Identity != null && User.Identity.IsAuthenticated)
+{
+    <form asp-controller="Comment" asp-action="Create" method="post" class="mb-3">
+        <input type="hidden" name="articleId" value="@Model.Id" />
+        <div class="form-group mb-2">
+            <textarea name="content" class="form-control" rows="2" placeholder="Ваш комментарий..." required></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
+    </form>
+}
+else
+{
+    <p><a asp-controller="Account" asp-action="Login">Войдите</a>, чтобы оставить комментарий.</p>
+}
+
+@foreach (var comment in Model.Comments.OrderBy(c => c.CreatedAt))
+{
+    var commentCanModify = User.Identity != null && User.Identity.IsAuthenticated &&
+        (currentUserId == comment.UserId || User.IsInRole("Admin") || User.IsInRole("Moderator"));
+
+    <div class="border rounded p-2 mb-2">
+        <strong>@comment.User?.UserName</strong>
+        <span class="text-muted small">@comment.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm")</span>
+        <p class="mb-1">@comment.Content</p>
+        @if (commentCanModify)
+        {
+            <form asp-controller="Comment" asp-action="Delete" asp-route-id="@comment.Id" method="post" class="d-inline">
+                <button type="submit" class="btn btn-sm btn-link text-danger p-0">Удалить</button>
+            </form>
+        }
+    </div>
+}

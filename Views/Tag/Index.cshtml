@@ -1,0 +1,25 @@
+@model List<Tag>
+@{
+    ViewData["Title"] = "Теги";
+}
+<h1>Теги</h1>
+
+@if (User.Identity != null && User.Identity.IsAuthenticated)
+{
+    <a asp-action="Create" class="btn btn-primary mb-3">Новый тег</a>
+}
+
+<table class="table">
+    <thead><tr><th>Название</th><th>Статей</th><th>Автор тега</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var tag in Model)
+    {
+        <tr>
+            <td><a asp-action="Details" asp-route-id="@tag.Id">@tag.Name</a></td>
+            <td>@tag.ArticleTags.Count</td>
+            <td>@tag.CreatedByUser?.UserName</td>
+            <td></td>
+        </tr>
+    }
+    </tbody>
+</table>

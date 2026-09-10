@@ -1,0 +1,34 @@
+@model ArticleFormViewModel
+@{
+    ViewData["Title"] = "Новая статья";
+}
+<h1>Новая статья</h1>
+
+<form asp-action="Create" method="post">
+    <div asp-validation-summary="All" class="text-danger"></div>
+
+    <div class="form-group mb-3">
+        <label asp-for="Title" class="form-label"></label>
+        <input asp-for="Title" class="form-control" />
+        <span asp-validation-for="Title" class="text-danger"></span>
+    </div>
+
+    <div class="form-group mb-3">
+        <label asp-for="Content" class="form-label"></label>
+        <textarea asp-for="Content" class="form-control" rows="10"></textarea>
+        <span asp-validation-for="Content" class="text-danger"></span>
+    </div>
+
+    <div class="form-group mb-3">
+        <label asp-for="TagsInput" class="form-label"></label>
+        <input asp-for="TagsInput" class="form-control" placeholder="asp.net, ef core, sqlite" />
+        <span asp-validation-for="TagsInput" class="text-danger"></span>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Опубликовать</button>
+    <a asp-action="Index" class="btn btn-secondary">Отмена</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

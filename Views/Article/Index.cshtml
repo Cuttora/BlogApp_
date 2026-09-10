@@ -1,0 +1,36 @@
+@model List<Article>
+@{
+    ViewData["Title"] = "Статьи";
+}
+
+<h1>Статьи</h1>
+
+@if (ViewBag.AuthorId != null)
+{
+    <p class="text-muted">Показаны статьи автора с id <code>@ViewBag.AuthorId</code>. <a asp-action="Index">Показать все</a></p>
+}
+
+@if (!Model.Any())
+{
+    <p>Статей пока нет.</p>
+}
+
+@foreach (var article in Model)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <h4 class="card-title">
+                <a asp-action="Details" asp-route-id="@article.Id">@article.Title</a>
+            </h4>
+            <h6 class="card-subtitle mb-2 text-muted">
+                Автор: <a asp-action="GetByAuthor" asp-route-authorId="@article.AuthorId">@article.Author?.UserName</a>
+                &middot; @article.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm")
+            </h6>
+            <p class="card-text">@(article.Content.Length > 220 ? article.Content.Substring(0, 220) + "..." : article.Content)</p>
+            @foreach (var at in article.ArticleTags)
+            {
+                <span class="badge bg-secondary tag-badge">@at.Tag?.Name</span>
+            }
+        </div>
+    </div>
+}

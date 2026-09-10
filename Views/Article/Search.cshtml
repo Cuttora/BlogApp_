@@ -1,0 +1,39 @@
+@model ArticleSearchViewModel
+@{
+    ViewData["Title"] = "Поиск статей";
+}
+<h1>Поиск статей</h1>
+
+<form asp-action="Search" method="get" class="row g-2 mb-4">
+    <div class="col-md-5">
+        <input name="query" value="@Model.Query" class="form-control" placeholder="Текст запроса" />
+    </div>
+    <div class="col-md-5">
+        <input name="tagsInput" value="@Model.TagsInput" class="form-control" placeholder="Теги через запятую" />
+    </div>
+    <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100">Искать</button>
+    </div>
+</form>
+
+@if (Model.Results.Any())
+{
+    <p>Найдено статей: @Model.Results.Count</p>
+    @foreach (var article in Model.Results)
+    {
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title"><a asp-action="Details" asp-route-id="@article.Id">@article.Title</a></h5>
+                <h6 class="card-subtitle mb-2 text-muted">@article.Author?.UserName &middot; @article.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy")</h6>
+                @foreach (var at in article.ArticleTags)
+                {
+                    <span class="badge bg-secondary tag-badge">@at.Tag?.Name</span>
+                }
+            </div>
+        </div>
+    }
+}
+else if (!string.IsNullOrWhiteSpace(Model.Query) || !string.IsNullOrWhiteSpace(Model.TagsInput))
+{
+    <p>По вашему запросу ничего не найдено.</p>
+}

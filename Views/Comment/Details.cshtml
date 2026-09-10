@@ -1,0 +1,8 @@
+@model Comment
+@{
+    ViewData["Title"] = "Комментарий";
+}
+<h1>Комментарий</h1>
+<p><strong>@Model.User?.UserName</strong> &middot; @Model.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm")</p>
+<p>@Model.Content</p>
+<a asp-controller="Article" asp-action="Details" asp-route-id="@Model.ArticleId" class="btn btn-secondary">К статье</a>
