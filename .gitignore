@@ -5,3 +5,4 @@ obj/
 app.db
 app.db-shm
 app.db-wal
+/logs/nlog-internal.log
